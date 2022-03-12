@@ -12,6 +12,6 @@ int main(int argc, char** argv) {
 
     std::string fname_in(argv[1]);
     cv::Mat src_img = cv::imread(fname_in, cv::IMREAD_COLOR);
-    cv::imwrite("out.png", src_img);
+    cv::imwrite(argv[2], src_img);
     return 0;
 }
