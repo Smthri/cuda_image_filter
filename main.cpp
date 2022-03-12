@@ -3,9 +3,11 @@
 extern "C" void fill_value(int* res);
 
 int main() {
-    std::cout << "Going to call GPU function..." << std::endl;
-    int res = -1;
+    std::cout << "Input number" << std::endl;
+    int x;
+    std::cin >> x;
+    int res = x;
     fill_value(&res);
-    std::cout << "Result: " << res << std::endl;
+    std::cout << x << " * 100 = " << res << std::endl;
     return 0;
 }

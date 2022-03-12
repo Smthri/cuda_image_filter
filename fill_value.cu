@@ -2,7 +2,7 @@
 
 __global__ void fill_value_kernel(int* res)
 {
-    *res = 5;
+    *res = *res * 100;
 }
 
 extern "C" void fill_value(int* res)
