@@ -3,3 +3,6 @@ build
 out
 images
 CMakeSettings.json
+*.png
+*.jpg
+*.jpeg

@@ -1,5 +1,6 @@
 #include <opencv2/core.hpp>
 #include <cmath>
+#include <omp.h>
 
 int im2col(const float* src, const int src_w, const int src_h, const int k, const int y, const int x, float* dst) {
     if (y + k > src_h || x + k > src_w || y < 0 || x < 0) {
@@ -33,7 +34,6 @@ int gradient(cv::Mat& src, const float sigma, const int k, cv::Mat& dst) {
     const float* src_ = src.ptr<float>();
     float* dst_ = dst.ptr<float>();
 
-    float* src_vec = (float *) malloc(k * k * sizeof(float));
     float* kernelx = (float *) malloc(k * k * sizeof(float));
     float* kernely = (float *) malloc(k * k * sizeof(float));
 
@@ -53,17 +53,27 @@ int gradient(cv::Mat& src, const float sigma, const int k, cv::Mat& dst) {
 
     int result = 0;
     const int N = k * k;
-    for (int i = 0; i < dst_h; ++i) {
-        for (int j = 0; j < dst_w; ++j) {
-            result |= im2col(src_, src_w, src_h, k, i, j, src_vec);
-            float sumx = dot_product(src_vec, kernelx, N);
-            float sumy = dot_product(src_vec, kernely, N);
-            *dst_++ = std::sqrt(sumx * sumx + sumy * sumy);
-            float angle = std::atan2(sumy, sumx);
+#pragma omp parallel default(none) shared(dst_h, dst_w, k, src_, src_w, src_h, kernelx, kernely, N, result, dst_) num_threads(NUM_THREADS)
+    {
+        float* src_vec = (float *) malloc(k * k * sizeof(float));
+
+#pragma omp for
+        for (int i = 0; i < dst_h; ++i) {
+            int index = i * dst_w;
+            for (int j = 0; j < dst_w; ++j, ++index) {
+                int im2col_res = im2col(src_, src_w, src_h, k, i, j, src_vec);
+#pragma omp atomic
+                result |= im2col_res;
+
+                float sumx = dot_product(src_vec, kernelx, N);
+                float sumy = dot_product(src_vec, kernely, N);
+                dst_[index] = std::sqrt(sumx * sumx + sumy * sumy);
+            }
         }
+
+        free(src_vec);
     }
 
-    free(src_vec);
     free(kernelx);
     free(kernely);
     return result;
