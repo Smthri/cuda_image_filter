@@ -5,7 +5,7 @@ project(cuda_test LANGUAGES CUDA CXX)
 
 set(CMAKE_CUDA_STANDARD 14)
 
-add_executable(cuda_test main.cpp cpu_canny.cpp fill_value.cu)
+add_executable(cuda_test main.cpp cpu_canny.cpp gpu_canny.cu)
 
 set_target_properties(cuda_test PROPERTIES
         CUDA_SEPARABLE_COMPILATION ON)
