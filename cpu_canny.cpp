@@ -1,8 +1,5 @@
 #include <opencv2/core.hpp>
-#include <opencv2/imgcodecs.hpp>
 #include <cmath>
-#include <omp.h>
-#include <iostream>
 #include <deque>
 
 namespace cpu {
@@ -130,7 +127,7 @@ namespace cpu {
         unsigned char* dirs_ = directions.ptr<unsigned char>();
         float* grad_ = gradient.ptr<float>();
 
-#pragma omp parallel default(none) shared(dst_h, dst_w, grad_h, grad_w, dst_, dirs_, grad_, std::cout) num_threads(NUM_THREADS)
+#pragma omp parallel default(none) shared(dst_h, dst_w, grad_h, grad_w, dst_, dirs_, grad_) num_threads(NUM_THREADS)
         {
 
 #pragma omp for
