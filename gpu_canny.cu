@@ -314,6 +314,16 @@ extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, c
     float* cuda_grads;
     float* kernelx;
     float* kernely;
+
+    cudaEvent_t all_start, exec_start, all_stop, exec_stop;
+    float all_ms, exec_ms;
+    cudaEventCreate(&all_start);
+    cudaEventCreate(&exec_start);
+    cudaEventCreate(&all_stop);
+    cudaEventCreate(&exec_stop);
+
+    cudaEventRecord(all_start);
+
     allocKernel(k, sigma, &kernelx, &kernely);
 
     res = cudaMalloc(&cuda_src, src_h * src_w * sizeof(float));
@@ -330,6 +340,7 @@ extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, c
     const dim3 grid_size(dst_w / BLOCK_SIZE, dst_h / BLOCK_SIZE);
     const dim3 block_size(BLOCK_SIZE, BLOCK_SIZE);
     cudaDeviceSetLimit(cudaLimitMallocHeapSize, 128 * 1024 * 1024);
+    cudaEventRecord(exec_start);
     cuda::gradient_gpu_kernel<<<grid_size, block_size>>>(
             cuda_src,
                     src_h, src_w,
@@ -364,6 +375,7 @@ extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, c
                     low_thr,
                     high_thr
     );
+    cudaEventRecord(exec_stop);
 
     freeKernel(kernelx, kernely);
 
@@ -378,6 +390,17 @@ extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, c
     parseCudaResult("free grads", res);
     res = cudaFree(cuda_dst);
     parseCudaResult("free dst", res);
+
+    cudaEventRecord(all_stop);
+    cudaEventSynchronize(all_stop);
+    cudaEventElapsedTime(&all_ms, all_start, all_stop);
+    cudaEventElapsedTime(&exec_ms, exec_start, exec_stop);
+    std::cout << "Total time (ms): " << all_ms << "; Execution time (ms): " << exec_ms << "; Copy time: " << all_ms - exec_ms << std::endl;
+
+    cudaEventDestroy(all_start);
+    cudaEventDestroy(exec_start);
+    cudaEventDestroy(all_stop);
+    cudaEventDestroy(exec_stop);
 
     return (int) res;
 }
