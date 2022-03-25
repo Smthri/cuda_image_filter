@@ -3,8 +3,6 @@
 #include <cuda.h>
 #include <cstdio>
 #include <cmath>
-#include <thrust/device_vector.h>
-#include <opencv2/imgcodecs.hpp>
 
 namespace cuda {
     __device__ int im2col(
