@@ -288,6 +288,9 @@ void freeKernel(float* kernelx, float* kernely) {
 }
 
 extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, const float high_thr, cv::Mat& dst) {
+    cudaError_t res = cudaSetDevice(0);
+    parseCudaResult("select device", res);
+
     cv::Mat src_ = src;
     if (!src.isContinuous() || (src.type() & CV_MAT_DEPTH_MASK) != CV_32F) {
         src.convertTo(src_, CV_32F);
@@ -312,7 +315,6 @@ extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, c
     float* kernelx;
     float* kernely;
     allocKernel(k, sigma, &kernelx, &kernely);
-    cudaError_t res;
 
     res = cudaMalloc(&cuda_src, src_h * src_w * sizeof(float));
     parseCudaResult("malloc src", res);
@@ -325,9 +327,8 @@ extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, c
     res = cudaMemcpy(cuda_src, _src_.ptr(), src_h * src_w * sizeof(float), cudaMemcpyHostToDevice);
     parseCudaResult("memcpy src", res);
 
-    const int thread_per_dim = 20;
-    const dim3 grid_size(dst_w / thread_per_dim, dst_h / thread_per_dim);
-    const dim3 block_size(thread_per_dim, thread_per_dim);
+    const dim3 grid_size(dst_w / BLOCK_SIZE, dst_h / BLOCK_SIZE);
+    const dim3 block_size(BLOCK_SIZE, BLOCK_SIZE);
     cudaDeviceSetLimit(cudaLimitMallocHeapSize, 128 * 1024 * 1024);
     cuda::gradient_gpu_kernel<<<grid_size, block_size>>>(
             cuda_src,
