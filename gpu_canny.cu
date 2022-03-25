@@ -7,8 +7,15 @@
 #include <opencv2/imgcodecs.hpp>
 
 namespace cuda {
-    __device__ int
-    im2col(const float* src, const int src_w, const int src_h, const int k, const int y, const int x, float* dst) {
+    __device__ int im2col(
+            const float* src,
+            const int src_w,
+            const int src_h,
+            const int k,
+            const int y,
+            const int x,
+            float* dst
+    ) {
         if (y + k > src_h || x + k > src_w || y < 0 || x < 0) {
             return 1;
         }
@@ -153,9 +160,9 @@ namespace cuda {
         int i = blockIdx.y * blockDim.y + threadIdx.y;
         int j = blockIdx.x * blockDim.x + threadIdx.x;
         int dst_index = i * dst_w + j;
-        int neighbor_idxs [8] = {
-                (i - 1) * dst_w + j -1,
-                (i - 1) * dst_w +j,
+        int neighbor_idxs[8] = {
+                (i - 1) * dst_w + j - 1,
+                (i - 1) * dst_w + j,
                 (i - 1) * dst_w + j + 1,
                 i * dst_w + j - 1,
                 i * dst_w + j + 1,
@@ -356,8 +363,6 @@ extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, c
                     low_thr,
                     high_thr
     );
-    //res = cudaDeviceSynchronize();
-    //parseCudaResult("synchronize", res);
 
     freeKernel(kernelx, kernely);
 
