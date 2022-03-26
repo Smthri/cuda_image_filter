@@ -35,7 +35,6 @@ namespace cuda {
             return;
         }
 
-        const int N = k * k;
         float sumx = 0;
         float sumy = 0;
         for (int ky = 0; ky < k; ++ky) {
