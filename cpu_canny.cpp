@@ -35,6 +35,8 @@ namespace cpu {
             const int k,
             cv::Mat &dst,
             cv::Mat &dirs,
+            const float* kernelx,
+            const float* kernely,
             const int nthreads
     ) {
         const int src_h = src.size[0];
@@ -45,39 +47,23 @@ namespace cpu {
         float* dst_ = dst.ptr<float>();
         unsigned char* dirs_ = dirs.ptr<unsigned char>();
 
-        float* kernelx = (float*) malloc(k * k * sizeof(float));
-        float* kernely = (float*) malloc(k * k * sizeof(float));
-
-        float* kx_ = kernelx;
-        float* ky_ = kernely;
-        float norm = -1.0 / (2.0 * M_PI * sigma * sigma * sigma * sigma);
-        float expnorm = 2.0 * sigma * sigma;
-        for (int i = 0; i < k; ++i) {
-            float y = k / 2 - i;
-            for (int j = 0; j < k; ++j) {
-                float x = k / 2 - j;
-                float scary = norm * std::pow(M_E, -(x * x + y * y) / expnorm);
-                *kx_++ = x * scary;
-                *ky_++ = y * scary;
-            }
-        }
-
         int result = 0;
         const int N = k * k;
 #pragma omp parallel default(none) shared(dst_h, dst_w, k, src_, src_w, src_h, kernelx, kernely, N, result, dst_, dirs_) num_threads(nthreads)
         {
-            float* src_vec = (float*) malloc(k * k * sizeof(float));
 
 #pragma omp for
             for (int i = 0; i < dst_h; ++i) {
                 int index = i * dst_w;
                 for (int j = 0; j < dst_w; ++j, ++index) {
-                    int im2col_res = im2col(src_, src_w, src_h, k, i, j, src_vec);
-#pragma omp atomic
-                    result |= im2col_res;
-
-                    float sumx = dot_product(src_vec, kernelx, N);
-                    float sumy = dot_product(src_vec, kernely, N);
+                    float sumx = 0;
+                    float sumy = 0;
+                    for (int ky = 0; ky < k; ++ky) {
+                        for (int kx = 0; kx < k; ++kx) {
+                            sumx += src_[(i + ky) * src_w + j + kx] * kernelx[ky * k + kx];
+                            sumy += src_[(i + ky) * src_w + j + kx] * kernely[ky * k + kx];
+                        }
+                    }
                     dst_[index] = std::sqrt(sumx * sumx + sumy * sumy);
                     if (sumx != 0.0f || sumy != 0.0f) {
                         float angle = std::atan2(sumy, sumx);
@@ -113,11 +99,7 @@ namespace cpu {
                 }
             }
 
-            free(src_vec);
         }
-
-        free(kernelx);
-        free(kernely);
         return result;
     }
 
@@ -286,6 +268,30 @@ namespace cpu {
 
         return 0;
     }
+
+    void allocKernel(const int k, const float sigma, float** kernelx, float** kernely) {
+        *kernelx = (float*) malloc(k * k * sizeof(float));
+        *kernely = (float*) malloc(k * k * sizeof(float));
+
+        float* kx_ = *kernelx;
+        float* ky_ = *kernely;
+        float norm = -1.0 / (2.0 * M_PI * sigma * sigma * sigma * sigma);
+        float expnorm = 2.0 * sigma * sigma;
+        for (int i = 0; i < k; ++i) {
+            float y = k / 2 - i;
+            for (int j = 0; j < k; ++j) {
+                float x = k / 2 - j;
+                float scary = norm * std::pow(M_E, -(x * x + y * y) / expnorm);
+                *kx_++ = x * scary;
+                *ky_++ = y * scary;
+            }
+        }
+    }
+
+    void freeKernel(float* kernelx, float* kernely) {
+        free(kernelx);
+        free(kernely);
+    }
 }
 
 extern "C" int canny_cpu(cv::Mat& src, const float sigma, const float low_thr, const float high_thr, cv::Mat& dst, const int nthreads) {
@@ -308,13 +314,17 @@ extern "C" int canny_cpu(cv::Mat& src, const float sigma, const float low_thr, c
     dst = cv::Mat(dst_h, dst_w, CV_32FC1, cv::Scalar(0));
     cv::Mat directions(dst_h, dst_w, CV_8UC1, cv::Scalar(0));
     cv::Mat grads;
+    float* kernelx;
+    float* kernely;
+    cpu::allocKernel(k, sigma, &kernelx, &kernely);
 
-    int ret = cpu::gradient(_src_, sigma, k, dst, directions, nthreads);
+    int ret = cpu::gradient(_src_, sigma, k, dst, directions, kernelx, kernely, nthreads);
     cv::copyMakeBorder(dst, grads, 1, 1, 1, 1, CV_HAL_BORDER_REFLECT);
     dst = cv::Mat(dst_h, dst_w, CV_32FC1, cv::Scalar(0));
     ret += cpu::nonmax(grads, directions, dst, nthreads);
 
     ret += cpu::hysteresis(dst, dst, low_thr, high_thr, nthreads);
+    cpu::freeKernel(kernelx, kernely);
     std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
     std::cout << "CPU timing (" << nthreads << " omp threads) (ms): "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << std::endl;

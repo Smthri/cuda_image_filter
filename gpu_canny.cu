@@ -59,11 +59,15 @@ namespace cuda {
             return;
         }
 
-        float* src_vec = (float*) malloc(k * k * sizeof(float));
         const int N = k * k;
-        int im2col_res = im2col(src_, src_w, src_h, k, i, j, src_vec);
-        float sumx = dot_product(src_vec, kernelx, N);
-        float sumy = dot_product(src_vec, kernely, N);
+        float sumx = 0;
+        float sumy = 0;
+        for (int ky = 0; ky < k; ++ky) {
+            for (int kx = 0; kx < k; ++kx) {
+                sumx += src_[(i + ky) * src_w + j + kx] * kernelx[ky * k + kx];
+                sumy += src_[(i + ky) * src_w + j + kx] * kernely[ky * k + kx];
+            }
+        }
         dst_[i * dst_w + j] = sqrtf(sumx * sumx + sumy * sumy);
         float angle = atan2f(sumy, sumx);
         if (sumx != 0 || sumy != 0) {
@@ -103,7 +107,6 @@ namespace cuda {
                     directions[i * dst_w + j] = 64;
             }
         }
-        free(src_vec);
     }
 
     __global__ void zero_pad(
