@@ -1,6 +1,8 @@
 #include <opencv2/core.hpp>
 #include <cmath>
 #include <deque>
+#include <chrono>
+#include <iostream>
 
 namespace cpu {
     int im2col(const float* src, const int src_w, const int src_h, const int k, const int y, const int x, float* dst) {
@@ -32,7 +34,8 @@ namespace cpu {
             const float sigma,
             const int k,
             cv::Mat &dst,
-            cv::Mat &dirs
+            cv::Mat &dirs,
+            const int nthreads
     ) {
         const int src_h = src.size[0];
         const int src_w = src.size[1];
@@ -61,7 +64,7 @@ namespace cpu {
 
         int result = 0;
         const int N = k * k;
-#pragma omp parallel default(none) shared(dst_h, dst_w, k, src_, src_w, src_h, kernelx, kernely, N, result, dst_, dirs_) num_threads(NUM_THREADS)
+#pragma omp parallel default(none) shared(dst_h, dst_w, k, src_, src_w, src_h, kernelx, kernely, N, result, dst_, dirs_) num_threads(nthreads)
         {
             float* src_vec = (float*) malloc(k * k * sizeof(float));
 
@@ -118,7 +121,7 @@ namespace cpu {
         return result;
     }
 
-    int nonmax(cv::Mat &gradient, cv::Mat &directions, cv::Mat &dst) {
+    int nonmax(cv::Mat &gradient, cv::Mat &directions, cv::Mat &dst, const int nthreads) {
         const int dst_h = dst.size[0];
         const int dst_w = dst.size[1];
         const int grad_h = gradient.size[0];
@@ -127,7 +130,7 @@ namespace cpu {
         unsigned char* dirs_ = directions.ptr<unsigned char>();
         float* grad_ = gradient.ptr<float>();
 
-#pragma omp parallel default(none) shared(dst_h, dst_w, grad_h, grad_w, dst_, dirs_, grad_) num_threads(NUM_THREADS)
+#pragma omp parallel default(none) shared(dst_h, dst_w, grad_h, grad_w, dst_, dirs_, grad_) num_threads(nthreads)
         {
 
 #pragma omp for
@@ -186,13 +189,13 @@ namespace cpu {
         return 0;
     }
 
-    int hysteresis(cv::Mat& src, cv::Mat& dst, const float low_thr, const float high_thr) {
+    int hysteresis(cv::Mat& src, cv::Mat& dst, const float low_thr, const float high_thr, const int nthreads) {
         const int dst_h = dst.size[0];
         const int dst_w = dst.size[1];
         float* src_ = src.ptr<float>();
         float* dst_ = dst.ptr<float>();
 
-#pragma omp parallel default(none) shared(dst_h, dst_w, dst_, src_, low_thr, high_thr) num_threads(NUM_THREADS)
+#pragma omp parallel default(none) shared(dst_h, dst_w, dst_, src_, low_thr, high_thr) num_threads(nthreads)
         {
 
 #pragma omp for
@@ -285,14 +288,15 @@ namespace cpu {
     }
 }
 
-extern "C" int canny_cpu(cv::Mat& src, const float sigma, const float low_thr, const float high_thr, cv::Mat& dst) {
+extern "C" int canny_cpu(cv::Mat& src, const float sigma, const float low_thr, const float high_thr, cv::Mat& dst, const int nthreads) {
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
     cv::Mat src_ = src;
     if (!src.isContinuous() || (src.type() & CV_MAT_DEPTH_MASK) != CV_32F) {
         src.convertTo(src_, CV_32F);
     }
     cv::Mat _src_;
     const int k = (int) std::ceil(sigma) * 6 + 1;
-    cv::copyMakeBorder(src_, _src_, k/2, k/2, k/2, k/2, CV_HAL_BORDER_REFLECT);
+    cv::copyMakeBorder(src_, _src_, k / 2, k / 2, k / 2, k / 2, CV_HAL_BORDER_REFLECT);
 
     const int src_h = _src_.size[0];
     const int src_w = _src_.size[1];
@@ -305,12 +309,15 @@ extern "C" int canny_cpu(cv::Mat& src, const float sigma, const float low_thr, c
     cv::Mat directions(dst_h, dst_w, CV_8UC1, cv::Scalar(0));
     cv::Mat grads;
 
-    int ret = cpu::gradient(_src_, sigma, k, dst, directions);
+    int ret = cpu::gradient(_src_, sigma, k, dst, directions, nthreads);
     cv::copyMakeBorder(dst, grads, 1, 1, 1, 1, CV_HAL_BORDER_REFLECT);
     dst = cv::Mat(dst_h, dst_w, CV_32FC1, cv::Scalar(0));
-    ret += cpu::nonmax(grads, directions, dst);
+    ret += cpu::nonmax(grads, directions, dst, nthreads);
 
-    ret += cpu::hysteresis(dst, dst, low_thr, high_thr);
+    ret += cpu::hysteresis(dst, dst, low_thr, high_thr, nthreads);
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+    std::cout << "CPU timing (" << nthreads << " omp threads) (ms): "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << std::endl;
 
     return ret;
 }

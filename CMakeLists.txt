@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
 
 set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)
-project(cuda_test LANGUAGES CUDA CXX)
+project(cuda_canny LANGUAGES CUDA CXX)
 
 set(CMAKE_CUDA_STANDARD 14)
 
-add_executable(cuda_test main.cpp cpu_canny.cpp gpu_canny.cu)
+add_executable(cuda_canny main.cpp cpu_canny.cpp gpu_canny.cu)
 
-set_target_properties(cuda_test PROPERTIES
+set_target_properties(cuda_canny PROPERTIES
         CUDA_SEPARABLE_COMPILATION ON)
 
 include(FindOpenMP)
@@ -19,7 +19,7 @@ endif()
 
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
-target_link_libraries(cuda_test ${OpenCV_LIBS})
+target_link_libraries(cuda_canny ${OpenCV_LIBS})
 
 if (NUM_THREADS)
     add_definitions(-DNUM_THREADS=${NUM_THREADS})

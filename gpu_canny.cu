@@ -299,6 +299,14 @@ void freeKernel(float* kernelx, float* kernely) {
 }
 
 extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, const float high_thr, cv::Mat& dst) {
+    cudaEvent_t all_start, exec_start, all_stop, exec_stop;
+    float all_ms, exec_ms;
+    cudaEventCreate(&all_start);
+    cudaEventCreate(&exec_start);
+    cudaEventCreate(&all_stop);
+    cudaEventCreate(&exec_stop);
+    cudaEventRecord(all_start);
+
     parseCudaResult("select device", cudaSetDevice(0));
 
     cv::Mat src_ = src;
@@ -327,22 +335,14 @@ extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, c
     float* kernelx;
     float* kernely;
 
-    cudaEvent_t all_start, exec_start, all_stop, exec_stop;
-    float all_ms, exec_ms;
-    cudaEventCreate(&all_start);
-    cudaEventCreate(&exec_start);
-    cudaEventCreate(&all_stop);
-    cudaEventCreate(&exec_stop);
-
-    cudaEventRecord(all_start);
-
     allocKernel(k, sigma, &kernelx, &kernely);
 
     parseCudaResult("malloc src", cudaMalloc(&cuda_src, src_h * src_w * sizeof(float)));
     parseCudaResult("malloc dst", cudaMalloc(&cuda_dst, cuda_dst_h * cuda_dst_w * sizeof(float)));
     parseCudaResult("malloc grads", cudaMalloc(&cuda_grads, (cuda_dst_h + 2) * (cuda_dst_w + 2) * sizeof(float)));
     parseCudaResult("malloc directions", cudaMalloc(&cuda_directions, cuda_dst_h * cuda_dst_w * sizeof(unsigned char)));
-    parseCudaResult("memcpy src", cudaMemcpy(cuda_src, _src_.ptr(), src_h * src_w * sizeof(float), cudaMemcpyHostToDevice));
+    parseCudaResult("memcpy src",
+                    cudaMemcpy(cuda_src, _src_.ptr(), src_h * src_w * sizeof(float), cudaMemcpyHostToDevice));
 
     const dim3 grid_size(cuda_dst_w / BLOCK_SIZE, cuda_dst_h / BLOCK_SIZE);
     const dim3 block_size(BLOCK_SIZE, BLOCK_SIZE);
@@ -386,7 +386,10 @@ extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, c
 
     freeKernel(kernelx, kernely);
 
-    parseCudaResult("memcpy dst", cudaMemcpy(dst.ptr(), cuda_dst, cuda_dst_h * cuda_dst_w * sizeof(float), cudaMemcpyDeviceToHost));
+    parseCudaResult("memcpy dst",
+                    cudaMemcpy(dst.ptr(), cuda_dst, cuda_dst_h * cuda_dst_w * sizeof(float), cudaMemcpyDeviceToHost));
+    dst = dst(cv::Rect(0, 0, dst_w, dst_h));
+
     parseCudaResult("free src", cudaFree(cuda_src));
     parseCudaResult("free directions", cudaFree(cuda_directions));
     parseCudaResult("free grads", cudaFree(cuda_grads));
@@ -396,14 +399,14 @@ extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, c
     parseCudaResult("device sync", cudaEventSynchronize(all_stop));
     parseCudaResult("calc total elapsed time", cudaEventElapsedTime(&all_ms, all_start, all_stop));
     parseCudaResult("calc execution time", cudaEventElapsedTime(&exec_ms, exec_start, exec_stop));
-    std::cout <<
+    std::cout << "GPU timings" << std::endl << "    total time (ms): " << all_ms << std::endl
+              << "    execution time (ms): " << exec_ms << std::endl << "    data copy time (ms): " << all_ms - exec_ms
+              << std::endl;
 
     parseCudaResult("destroy event all_start", cudaEventDestroy(all_start));
     parseCudaResult("destroy event exec_start", cudaEventDestroy(exec_start));
     parseCudaResult("destroy event all_stop", cudaEventDestroy(all_stop));
     parseCudaResult("destroy event exec_stop", cudaEventDestroy(exec_stop));
-
-    dst = dst(cv::Rect(0, 0, dst_w, dst_h));
 
     return 0;
 }
