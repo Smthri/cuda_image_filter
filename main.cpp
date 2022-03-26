@@ -21,8 +21,7 @@ int main(int argc, char** argv) {
     cv::Mat src_img = cv::imread(fname_in, cv::IMREAD_GRAYSCALE);
     cv::Mat float_test, float_dest;
     src_img.convertTo(float_test, CV_32FC1);
-    int result = 1;
-    std::cout << "Device: " << device << std::endl;
+    int result;
     if (!device.compare("cpu")) {
         result = canny_cpu(float_test, sigma, low_thr, high_thr, float_dest);
     } else if (!device.compare("cuda")) {
@@ -30,8 +29,6 @@ int main(int argc, char** argv) {
     } else {
         std::cout << "Unknown device " << device << std::endl;
     }
-
-    std::cout << "Result: " << result << std::endl;
 
     cv::imwrite(fname_out, float_dest);
     return 0;

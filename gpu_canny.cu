@@ -4,6 +4,9 @@
 #include <cstdio>
 #include <cmath>
 
+#define CHECK_BOUNDS(y, x, h, w) \
+    ((x) < 0 || (y) < 0 || (x) >= (w) || (y) >= (h))
+
 namespace cuda {
     __device__ int im2col(
             const float* src,
@@ -49,11 +52,15 @@ namespace cuda {
             const float* kernelx,
             const float* kernely,
             unsigned char* directions) {
-        float* src_vec = (float*) malloc(k * k * sizeof(float));
-        const int N = k * k;
-
         int i = blockIdx.y * blockDim.y + threadIdx.y;
         int j = blockIdx.x * blockDim.x + threadIdx.x;
+        if (CHECK_BOUNDS(i, j, dst_h, dst_w)) {
+            printf("grad thread exit\n");
+            return;
+        }
+
+        float* src_vec = (float*) malloc(k * k * sizeof(float));
+        const int N = k * k;
         int im2col_res = im2col(src_, src_w, src_h, k, i, j, src_vec);
         float sumx = dot_product(src_vec, kernelx, N);
         float sumy = dot_product(src_vec, kernely, N);
@@ -111,6 +118,11 @@ namespace cuda {
         int j = blockIdx.x * blockDim.x + threadIdx.x;
         int xoffset = (dst_h - src_h) / 2;
         int yoffset = (dst_w - src_w) / 2;
+        if (CHECK_BOUNDS(i, j, src_h, src_w) || CHECK_BOUNDS(i + yoffset, j + xoffset, dst_h, dst_w)) {
+            printf("padding thread exit\n");
+            return;
+        }
+
         dst[(i + yoffset) * dst_w + j + xoffset] = src[i * src_w + j];
     }
 
@@ -125,6 +137,11 @@ namespace cuda {
     ) {
         int i = blockIdx.y * blockDim.y + threadIdx.y;
         int j = blockIdx.x * blockDim.x + threadIdx.x;
+        if (CHECK_BOUNDS(i, j, dst_h, dst_w)) {
+            printf("thread exit\n");
+            return;
+        }
+
         float m = 0;
         switch (directions[i * dst_w + j]) {
             case 128:
@@ -157,6 +174,10 @@ namespace cuda {
     ) {
         int i = blockIdx.y * blockDim.y + threadIdx.y;
         int j = blockIdx.x * blockDim.x + threadIdx.x;
+        if (CHECK_BOUNDS(i, j, dst_h, dst_w)) {
+            printf("hyst bounds check\n");
+        }
+
         int dst_index = i * dst_w + j;
         int neighbor_idxs[8] = {
                 (i - 1) * dst_w + j - 1,
@@ -183,7 +204,7 @@ namespace cuda {
             changed = 0;
             __syncthreads();
 
-            if (dst[i * dst_h + j] == 128) {
+            if (dst[dst_index] == 128) {
                 if (i > 0) {
                     if (j > 0) {
                         if (dst[neighbor_idxs[0]] == 255) {
@@ -247,11 +268,8 @@ void parseCudaResult(std::string label, cudaError_t res) {
 }
 
 void allocKernel(const int k, const float sigma, float** kernelx, float** kernely) {
-    cudaError_t res;
-    res = cudaMalloc(kernelx, k * k * sizeof(float));
-    parseCudaResult("kernelx alloc", res);
-    res = cudaMalloc(kernely, k * k * sizeof(float));
-    parseCudaResult("kernely alloc", res);
+    parseCudaResult("kernelx alloc", cudaMalloc(kernelx, k * k * sizeof(float)));
+    parseCudaResult("kernely alloc", cudaMalloc(kernely, k * k * sizeof(float)));
 
     float* kernelx_ = (float*) malloc(k * k * sizeof(float));
     float* kernely_ = (float*) malloc(k * k * sizeof(float));
@@ -269,25 +287,19 @@ void allocKernel(const int k, const float sigma, float** kernelx, float** kernel
         }
     }
 
-    res = cudaMemcpy(*kernelx, kernelx_, k * k * sizeof(float), cudaMemcpyHostToDevice);
-    parseCudaResult("kernelx memcpy", res);
-    res = cudaMemcpy(*kernely, kernely_, k * k * sizeof(float), cudaMemcpyHostToDevice);
-    parseCudaResult("kernely memcpy", res);
+    parseCudaResult("kernelx memcpy", cudaMemcpy(*kernelx, kernelx_, k * k * sizeof(float), cudaMemcpyHostToDevice));
+    parseCudaResult("kernely memcpy", cudaMemcpy(*kernely, kernely_, k * k * sizeof(float), cudaMemcpyHostToDevice));
     free(kernelx_);
     free(kernely_);
 }
 
 void freeKernel(float* kernelx, float* kernely) {
-    cudaError_t res;
-    res = cudaFree(kernelx);
-    parseCudaResult("kernelx free", res);
-    res = cudaFree(kernely);
-    parseCudaResult("kernely free", res);
+    parseCudaResult("kernelx free", cudaFree(kernelx));
+    parseCudaResult("kernely free", cudaFree(kernely));
 }
 
 extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, const float high_thr, cv::Mat& dst) {
-    cudaError_t res = cudaSetDevice(0);
-    parseCudaResult("select device", res);
+    parseCudaResult("select device", cudaSetDevice(0));
 
     cv::Mat src_ = src;
     if (!src.isContinuous() || (src.type() & CV_MAT_DEPTH_MASK) != CV_32F) {
@@ -304,7 +316,9 @@ extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, c
     }
     const int dst_h = src_h - k + 1;
     const int dst_w = src_w - k + 1;
-    dst = cv::Mat(dst_h, dst_w, CV_32FC1);
+    const int cuda_dst_h = dst_h + dst_h % BLOCK_SIZE;
+    const int cuda_dst_w = dst_w + dst_w % BLOCK_SIZE;
+    dst = cv::Mat(cuda_dst_h, cuda_dst_w, CV_32FC1);
 
     float* cuda_src;
     float* cuda_dst;
@@ -324,25 +338,20 @@ extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, c
 
     allocKernel(k, sigma, &kernelx, &kernely);
 
-    res = cudaMalloc(&cuda_src, src_h * src_w * sizeof(float));
-    parseCudaResult("malloc src", res);
-    res = cudaMalloc(&cuda_dst, dst_h * dst_w * sizeof(float));
-    parseCudaResult("malloc dst", res);
-    res = cudaMalloc(&cuda_grads, (dst_h + 2) * (dst_w + 2) * sizeof(float));
-    parseCudaResult("malloc grads", res);
-    res = cudaMalloc(&cuda_directions, dst_h * dst_w * sizeof(unsigned char));
-    parseCudaResult("malloc directions", res);
-    res = cudaMemcpy(cuda_src, _src_.ptr(), src_h * src_w * sizeof(float), cudaMemcpyHostToDevice);
-    parseCudaResult("memcpy src", res);
+    parseCudaResult("malloc src", cudaMalloc(&cuda_src, src_h * src_w * sizeof(float)));
+    parseCudaResult("malloc dst", cudaMalloc(&cuda_dst, cuda_dst_h * cuda_dst_w * sizeof(float)));
+    parseCudaResult("malloc grads", cudaMalloc(&cuda_grads, (cuda_dst_h + 2) * (cuda_dst_w + 2) * sizeof(float)));
+    parseCudaResult("malloc directions", cudaMalloc(&cuda_directions, cuda_dst_h * cuda_dst_w * sizeof(unsigned char)));
+    parseCudaResult("memcpy src", cudaMemcpy(cuda_src, _src_.ptr(), src_h * src_w * sizeof(float), cudaMemcpyHostToDevice));
 
-    const dim3 grid_size(dst_w / BLOCK_SIZE, dst_h / BLOCK_SIZE);
+    const dim3 grid_size(cuda_dst_w / BLOCK_SIZE, cuda_dst_h / BLOCK_SIZE);
     const dim3 block_size(BLOCK_SIZE, BLOCK_SIZE);
-    cudaDeviceSetLimit(cudaLimitMallocHeapSize, 128 * 1024 * 1024);
+    cudaDeviceSetLimit(cudaLimitMallocHeapSize, 512 * 1024 * 1024);
     cudaEventRecord(exec_start);
     cuda::gradient_gpu_kernel<<<grid_size, block_size>>>(
             cuda_src,
                     src_h, src_w,
-                    dst_h, dst_w,
+                    cuda_dst_h, cuda_dst_w,
                     sigma, k,
                     cuda_dst,
                     kernelx,
@@ -351,56 +360,52 @@ extern "C" int canny_gpu(cv::Mat& src, const float sigma, const float low_thr, c
     );
     cuda::zero_pad<<<grid_size, block_size>>>(
             cuda_dst,
-                    dst_h,
-                    dst_w,
+                    cuda_dst_h,
+                    cuda_dst_w,
                     cuda_grads,
-                    dst_h + 2,
-                    dst_w + 2
+                    cuda_dst_h + 2,
+                    cuda_dst_w + 2
     );
     cuda::nonmax<<<grid_size, block_size>>>(
             cuda_directions,
                     cuda_grads,
-                    dst_h + 2,
-                    dst_w + 2,
-                    dst_h,
-                    dst_w,
+                    cuda_dst_h + 2,
+                    cuda_dst_w + 2,
+                    cuda_dst_h,
+                    cuda_dst_w,
                     cuda_dst
     );
     cuda::hysteresis<<<grid_size, block_size>>>(
             cuda_dst,
-                    dst_h,
-                    dst_w,
+                    cuda_dst_h,
+                    cuda_dst_w,
                     low_thr,
                     high_thr
     );
-    cudaEventRecord(exec_stop);
+    parseCudaResult("record stop", cudaEventRecord(exec_stop));
 
     freeKernel(kernelx, kernely);
 
-    res = cudaMemcpy(dst.ptr(), cuda_dst, dst_h * dst_w * sizeof(float), cudaMemcpyDeviceToHost);
-    parseCudaResult("memcpy dst", res);
-    res = cudaFree(cuda_src);
+    parseCudaResult("memcpy dst", cudaMemcpy(dst.ptr(), cuda_dst, cuda_dst_h * cuda_dst_w * sizeof(float), cudaMemcpyDeviceToHost));
+    parseCudaResult("free src", cudaFree(cuda_src));
+    parseCudaResult("free directions", cudaFree(cuda_directions));
+    parseCudaResult("free grads", cudaFree(cuda_grads));
+    parseCudaResult("free dst", cudaFree(cuda_dst));
 
-    parseCudaResult("free src", res);
-    res = cudaFree(cuda_directions);
-    parseCudaResult("free directions", res);
-    res = cudaFree(cuda_grads);
-    parseCudaResult("free grads", res);
-    res = cudaFree(cuda_dst);
-    parseCudaResult("free dst", res);
+    parseCudaResult("record all stop", cudaEventRecord(all_stop));
+    parseCudaResult("device sync", cudaEventSynchronize(all_stop));
+    parseCudaResult("calc total elapsed time", cudaEventElapsedTime(&all_ms, all_start, all_stop));
+    parseCudaResult("calc execution time", cudaEventElapsedTime(&exec_ms, exec_start, exec_stop));
+    std::cout <<
 
-    cudaEventRecord(all_stop);
-    cudaEventSynchronize(all_stop);
-    cudaEventElapsedTime(&all_ms, all_start, all_stop);
-    cudaEventElapsedTime(&exec_ms, exec_start, exec_stop);
-    std::cout << "Total time (ms): " << all_ms << "; Execution time (ms): " << exec_ms << "; Copy time: " << all_ms - exec_ms << std::endl;
+    parseCudaResult("destroy event all_start", cudaEventDestroy(all_start));
+    parseCudaResult("destroy event exec_start", cudaEventDestroy(exec_start));
+    parseCudaResult("destroy event all_stop", cudaEventDestroy(all_stop));
+    parseCudaResult("destroy event exec_stop", cudaEventDestroy(exec_stop));
 
-    cudaEventDestroy(all_start);
-    cudaEventDestroy(exec_start);
-    cudaEventDestroy(all_stop);
-    cudaEventDestroy(exec_stop);
+    dst = dst(cv::Rect(0, 0, dst_w, dst_h));
 
-    return (int) res;
+    return 0;
 }
 
 
