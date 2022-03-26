@@ -8,30 +8,6 @@
     ((x) < 0 || (y) < 0 || (x) >= (w) || (y) >= (h))
 
 namespace cuda {
-    __device__ int im2col(
-            const float* src,
-            const int src_w,
-            const int src_h,
-            const int k,
-            const int y,
-            const int x,
-            float* dst
-    ) {
-        if (y + k > src_h || x + k > src_w || y < 0 || x < 0) {
-            return 1;
-        }
-
-        const float* src_ = src + y * src_w + x;
-        for (int i = 0; i < k; ++i) {
-            for (int j = 0; j < k; ++j) {
-                *dst++ = src_[j];
-            }
-            src_ += src_w;
-        }
-
-        return 0;
-    }
-
     __device__ float dot_product(const float* src, const float* kernel, const int N) {
         float sum = 0;
         for (int i = 0; i < N; ++i) {

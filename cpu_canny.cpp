@@ -5,22 +5,6 @@
 #include <iostream>
 
 namespace cpu {
-    int im2col(const float* src, const int src_w, const int src_h, const int k, const int y, const int x, float* dst) {
-        if (y + k > src_h || x + k > src_w || y < 0 || x < 0) {
-            return 1;
-        }
-
-        unsigned chunk = k * sizeof(float);
-        const float* src_ = src + y * src_w + x;
-        for (int i = 0; i < k; ++i) {
-            memcpy(dst, src_, chunk);
-            src_ += src_w;
-            dst += k;
-        }
-
-        return 0;
-    }
-
     float dot_product(const float* src, const float* kernel, const int N) {
         float sum = 0;
         for (int i = 0; i < N; ++i) {
