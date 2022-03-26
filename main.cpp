@@ -22,8 +22,10 @@ int main(int argc, char** argv) {
     int result = 0;
     result |= canny_cpu(float_test, sigma, low_thr, high_thr, float_dest, 1);
     cv::imwrite("out_cpu.png", float_dest);
+    float_dest = cv::Scalar(0);
 
     result |= canny_cpu(float_test, sigma, low_thr, high_thr, float_dest, NUM_THREADS);
+    float_dest = cv::Scalar(0);
 
     result |= canny_gpu(float_test, sigma, low_thr, high_thr, float_dest);
     cv::imwrite("out_gpu.png", float_dest);
