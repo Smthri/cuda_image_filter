@@ -7,4 +7,4 @@ Otherwise good luck.
 - `mkdir build && cd build`
 - `cmake ..  -DBLOCK_SIZE=<X> -DNUM_THREADS=<Y>`
 - `make all`
-- `./cuda_test`
+- `./cuda_canny <src/image/path> <sigma> <thr_low> <thr_high>`
